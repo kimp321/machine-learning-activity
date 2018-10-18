@@ -4,7 +4,7 @@ output: html_document
 ---
 
 ### Load Libraries
-```{r}
+```{r echo=FALSE}
 library('caret')
 library('dplyr')
 library('tidyr')
@@ -36,7 +36,7 @@ info2$mean_score[is.na(info2$mean_score)] <- 0
 ```
 
 ### Create a Validation Set
-```{r}
+```{r  collapse=TRUE}
 # Split your data into two new datasets, `TRAINING` and `TEST`, by **randomly** selecting 20% of the students for the `TEST` set
 set.seed(12345)
 training <- info2 %>% filter(id_student %in% sample(unique(id_student),ceiling(0.80*length(unique(id_student)))))
@@ -62,20 +62,12 @@ ggplot(data=training, aes(x=final_result2, fill=final_result2)) + geom_bar()
 # Visualize relationships between variables for insight
 my_cols <- c("#00AFBB", "#E7B800")  
 plot <- pairs(training, pch = 21, col = my_cols[training$final_result2], lower.panel=NULL, oma=c(2,2,6,2), main="Scatterplot Matrix Comparing Variable Relationships", line.main = 3)
-par(xpd=TRUE)
 ```
 
 ### Model Training
 ```{r}
 # remove variables from model in training set
 training2 <- training %>% select(-id_student, -final_result)
-#training2$gender <- ifelse(training2$gender=="F",1,2)
-#training2$gender <- as.factor(training2$gender)
-#training2$num_of_prev_attempts <- as.numeric(training2$num_of_prev_attempts)
-#training2$studied_credits <- as.numeric(training2$studied_credits)
-
-
-# training2[] <- lapply(training2, factor)
 
 #Define the control elements we would like to use
 ctrl <- trainControl(method = "repeatedcv", #Tell caret to perform 10-fold cross validation
