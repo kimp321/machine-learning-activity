@@ -1,0 +1,113 @@
+---
+title: "predictionComp"
+output: html_document
+---
+
+### Load Libraries
+```{r}
+library('caret')
+library('dplyr')
+library('tidyr')
+#install.packages('e1071', dependencies=TRUE)
+```
+
+### Import Data
+```{r}
+# Import the `studentVle.csv`, `studentAssessment.csv` and `studentInfo.csv` files into R
+vle <- read.csv('studentVle.csv')
+assessment <- read.csv('studentAssessment.csv')
+info <- read.csv('studentInfo.csv')
+```
+
+### Wrangling
+```{r}
+# Calculate the average daily number of clicks (site interactions) for each student from the `studentVle` dataset
+avgClicks <- vle %>% group_by(id_student) %>% summarise(mean(sum_click))
+
+# Calculate the average assessment score for each student from the `studentAssessment` dataset
+avgScore <- assessment %>% group_by(id_student) %>% summarise(mean(score))
+
+# Merge your click and assessment score average values into the the `studentInfo` dataset
+info2 <- left_join(info, avgClicks, by="id_student") %>% left_join(avgScore, by="id_student")
+info2 <- rename(info2, mean_sum_click = `mean(sum_click)`)
+info2 <- rename(info2, mean_score = `mean(score)`)
+info2$mean_sum_click[is.na(info2$mean_sum_click)] <- 0
+info2$mean_score[is.na(info2$mean_score)] <- 0
+```
+
+### Create a Validation Set
+```{r}
+# Split your data into two new datasets, `TRAINING` and `TEST`, by **randomly** selecting 20% of the students for the `TEST` set
+set.seed(12345)
+training <- info2 %>% filter(id_student %in% sample(unique(id_student),ceiling(0.80*length(unique(id_student)))))
+test <- anti_join(info2, training, by = "id_student")
+
+# check
+nrow(training) + nrow(test)
+nrow(info2)
+```
+
+### Explore
+```{r}
+# Generate summary statistics for the variable `final_result`
+summary(training$final_result)
+
+# Ensure that the final_result variable is binary (Remove all students who withdrew from a courses and convert all students who recieved distinctions to pass)
+training$final_result2 <- ifelse(training$final_result=="distinction"|training$final_result=="Pass","Pass","Fail")
+training$final_result2 <- as.factor(training$final_result2)
+
+# Visualize the distributions of each of the variables for insight
+ggplot(data=training, aes(x=final_result2, fill=final_result2)) + geom_bar()
+
+# Visualize relationships between variables for insight
+my_cols <- c("#00AFBB", "#E7B800")  
+plot <- pairs(training, pch = 21, col = my_cols[training$final_result2], lower.panel=NULL, oma=c(2,2,6,2), main="Scatterplot Matrix Comparing Variable Relationships", line.main = 3)
+par(xpd=TRUE)
+```
+
+### Model Training
+```{r}
+# remove variables from model in training set
+training2 <- training %>% select(-id_student, -final_result)
+#training2$gender <- ifelse(training2$gender=="F",1,2)
+#training2$gender <- as.factor(training2$gender)
+#training2$num_of_prev_attempts <- as.numeric(training2$num_of_prev_attempts)
+#training2$studied_credits <- as.numeric(training2$studied_credits)
+
+
+# training2[] <- lapply(training2, factor)
+
+#Define the control elements we would like to use
+ctrl <- trainControl(method = "repeatedcv", #Tell caret to perform 10-fold cross validation
+                repeats = 3, #Tell caret to repeat each fold three times
+                classProbs = TRUE, #Calculate class probabilities for ROC calculation
+                summaryFunction = twoClassSummary)
+
+#Define the model
+set.seed(12345)
+cartFit <- train(final_result2 ~ ., #Define which variable to predict 
+                data = training2, #Define the data set to train the model on
+                trControl = ctrl, #Tell caret the control elements
+                method = "rpart", #Define the model type
+                metric = "ROC", #Tell caret to calculate the ROC curve
+                preProc = c("center", "scale")) #Center and scale the data to minimize the 
+
+#Check the results
+cartFit
+                
+#Plot ROC against complexity 
+plot(cartFit)
+```
+
+```{r}
+test$final_result2 <- ifelse(test$final_result=="distinction"|test$final_result=="Pass","Pass","Fail")
+test$final_result2 <- as.factor(test$final_result2)
+test2 <- select(test, -id_student) #Remove the student_id variable that we do not want to use in the model
+
+#Generate prediction using previously trained model
+cartClasses <- predict(cartFit, newdata = test2)
+
+#Generate model statistics
+confusionMatrix(data = cartClasses, test2$final_result2)
+```
+
