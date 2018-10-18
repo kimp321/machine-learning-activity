@@ -1,0 +1,108 @@
+---
+title: "classCompetition_draft"
+author: "kimp"
+date: "10/16/2018"
+output: html_document
+---
+
+```{r}
+library('dplyr')
+library('tidyr')
+library('ggplot2')
+```
+
+```{r}
+vle <- read.csv("studentVle.csv")
+assessment <- read.csv("studentAssessment.csv")
+studentInfo <- read.csv("studentInfo.csv")
+```
+
+```{r}
+# Calculate the average daily number of clicks (site interactions) for each student from the `studentVle` dataset
+avgClicks <- vle %>% group_by(id_student) %>% summarise(mean(sum_click))
+avgClicks <- rename(avgClicks, "mean(sum_click)" = "mean_sum_click")
+
+# Calculate the average assessment score for each student from the `studentAssessment` dataset
+avgScore <- assessment %>% group_by(id_student) %>% summarise(mean(score))
+
+# Merge your click and assessment score average values into the the `studentInfo` dataset
+studentInfo2 <- left_join(studentInfo, avgClicks, by="id_student") %>% left_join(avgScore, by="id_student")
+studentInfo2$`mean(score)`[is.na(studentInfo2$`mean(score)`)] <- 0
+studentInfo2$`mean(sum_click)`[is.na(studentInfo2$`mean(sum_click)`)] <- 0
+```
+
+### Create a Validation Set
+```{r}
+# Split your data into two new datasets, `TRAINING` and `TEST`, by **randomly** selecting 20% of the students for the `TEST` set
+
+set.seed(100)
+training <- studentInfo2 %>% filter(id_student %in% sample(unique(id_student),ceiling(0.8*length(unique(id_student)))))
+test <- anti_join(studentInfo2, training, by = "id_student")
+nrow(training) + nrow(test)
+nrow(studentInfo2)
+
+#set.seed(100)
+#studentInfo3 <- unique(studentInfo2)
+#training <- sample_frac(studentInfo3, 0.8)
+#test <- studentInfo3 %>% anti_join(training, by = "id_student")
+#nrow(training) + nrow(test)
+#nrow(studentInfo3)
+
+```
+
+### Explore
+```{r}
+# Generate summary statistics for the variable `final_result`
+summary(training$final_result)
+
+# Ensure that the final_result variable is binary (Remove all students who withdrew from a courses and convert all students who recieved distinctions to pass)
+training$final_result_binary <- ifelse(training$final_result=="Distinction"|training$final_result=="Pass",1,0)
+training$final_result_binary <- as.factor(training$final_result_binary)
+summary(training$final_result_binary)
+
+# Visualize the distributions of each of the variables for insight
+ggplot(data=training, aes(x=final_result_binary, fill=final_result_binary)) + geom_bar()
+
+# Visualize relationships between variables for insight
+featurePlot(x = training[,-3], 
+            y = training$final_result_binary, 
+            plot = "pairs",
+            ## Add a key at the top
+            auto.key = list(columns = 2))
+```
+### Model Training
+
+```{r}
+library('caret')
+dyn.load(paste0(system2('/usr/libexec/java_home', stdout = TRUE), '/lib/server/libjvm.dylib'))
+library('RWeka')
+library('C50')
+```
+
+```{r}
+# CART
+training2 <- training %>% select(-id_student, -final_result) #Remove the student_id variable that we do not want to use in the model
+
+#Define the control elements we would like to use
+ctrl <- trainControl(method = "repeatedcv", #Tell caret to perform 10-fold cross validation
+                repeats = 10, #Tell caret to repeat each fold three times
+                #classProbs = TRUE, #Calculate class probabilities for ROC calculation
+                summaryFunction = twoClassSummary,
+                classProbs = TRUE)
+
+#Define the model
+cartFit <- train(final_result_binary ~ ., #Define which variable to predict 
+                data = training2, #Define the data set to train the model on
+                trControl = ctrl, #Tell caret the control elements
+                method = "rpart", #Define the model type
+                tuneLength = 10, 
+                metric = "ROC", #Tell caret to calculate the ROC curve
+                preProc = c("center","scale")) #Center and scale the data to minimize the 
+
+#Check the results
+cartFit
+                
+#Plot ROC against complexity 
+plot(cartFit)
+```
+
